@@ -2,4 +2,5 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 python-multipart
-requests
+langdetect
+deep-translator

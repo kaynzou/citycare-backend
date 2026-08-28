@@ -1,45 +1,69 @@
-import os
-import requests
+"""
+Handles language detection + translation for incoming complaints.
 
-HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
-if not HF_API_KEY:
-    raise ValueError("Missing HUGGINGFACE_API_KEY environment variable")
+Two-tier approach:
+- langdetect for fast local language detection (no network call)
+- deep_translator (Google Translate backend) for the actual translation
+
+deep_translator needs outbound internet access to translate.google.com.
+If that's blocked (corporate network, offline demo, etc.) this falls back
+to returning the original text untranslated rather than failing the request —
+a complaint should never fail to save just because translation didn't work.
+
+For noticeably better quality on Indian regional/dialect text (Bhojpuri,
+Awadhi, Magahi, code-mixed Hinglish, etc.), swap translate_text() below to
+call an LLM (Claude/GPT) with a translation prompt instead of deep_translator —
+see the commented block at the bottom for the pattern.
+"""
+
+from langdetect import detect, DetectorFactory, LangDetectException
+from deep_translator import GoogleTranslator
+
+DetectorFactory.seed = 0  # deterministic detection
+
+
+def detect_language(text: str) -> str:
+    try:
+        return detect(text)
+    except LangDetectException:
+        return "unknown"
+
 
 def translate_text(text: str, target_language: str = "en") -> tuple[str, str]:
-    """
-    Simple translation using Hugging Face Inference API.
-    Handles Hinglish/Tanglish by using a prompt-based approach.
-    """
-    if not text or not text.strip():
-        return ("unknown", "")
-    
-    # Use a simple, reliable LLM that's always available
-    API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    
-    # Simple prompt for translation
-    prompt = f"Translate to {target_language}: {text}"
-    
+    """Returns (detected_language, translated_text)."""
+    detected = detect_language(text)
+
+    if detected == target_language:
+        return detected, text
+
     try:
-        print(f"🔄 Translating: '{text}'")
-        
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            json={"inputs": prompt},
-            timeout=30
-        )
-        
-        if response.status_code != 200:
-            print(f" HF API Error {response.status_code}: {response.text}")
-            return ("unknown", text)
-        
-        result = response.json()
-        translated = result[0]["generated_text"].strip()
-        
-        print(f"✅ Translated to: '{translated}'")
-        return ("romanized", translated)
-        
-    except Exception as e:
-        print(f"❌ Translation failed: {str(e)}")
-        return ("unknown", text)
+        translated = GoogleTranslator(source="auto", target=target_language).translate(text)
+        return detected, translated
+    except Exception:
+        # Network unavailable / API hiccup — never block complaint submission on this.
+        return detected, text
+
+
+# --- LLM-based alternative (better for regional dialects, code-mixed text) ---
+#
+# import requests
+#
+# def translate_text_llm(text: str, target_language: str = "English") -> tuple[str, str]:
+#     prompt = (
+#         f"Detect the language of this text and translate it to {target_language}. "
+#         f"Preserve tone and specific details (names, dates, amounts). "
+#         f'Return JSON: {{"detected_language": "...", "translation": "..."}}\n\n'
+#         f"Text: {text}"
+#     )
+#     response = requests.post(
+#         "https://api.anthropic.com/v1/messages",
+#         headers={"x-api-key": "YOUR_KEY", "anthropic-version": "2023-06-01"},
+#         json={
+#             "model": "claude-sonnet-4-6",
+#             "max_tokens": 500,
+#             "messages": [{"role": "user", "content": prompt}],
+#         },
+#     )
+#     data = response.json()["content"][0]["text"]
+#     parsed = json.loads(data)
+#     return parsed["detected_language"], parsed["translation"]
