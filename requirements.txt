@@ -2,5 +2,4 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 python-multipart
-langdetect
-deep-translator
+huggingface_hub>=0.24.0

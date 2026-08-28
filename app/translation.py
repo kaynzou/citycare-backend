@@ -1,69 +1,58 @@
 """
 Handles language detection + translation for incoming complaints.
 
-Two-tier approach:
-- langdetect for fast local language detection (no network call)
-- deep_translator (Google Translate backend) for the actual translation
-
-deep_translator needs outbound internet access to translate.google.com.
-If that's blocked (corporate network, offline demo, etc.) this falls back
-to returning the original text untranslated rather than failing the request —
-a complaint should never fail to save just because translation didn't work.
-
-For noticeably better quality on Indian regional/dialect text (Bhojpuri,
-Awadhi, Magahi, code-mixed Hinglish, etc.), swap translate_text() below to
-call an LLM (Claude/GPT) with a translation prompt instead of deep_translator —
-see the commented block at the bottom for the pattern.
+Uses Hugging Face Inference API (gemma-2b-it) for robust translation.
+This approach handles code-mixed text (Hinglish, Tanglish) and regional 
+dialects far better than scraping-based translators, and won't get 
+blocked by cloud IP filters on Render.
 """
 
-from langdetect import detect, DetectorFactory, LangDetectException
-from deep_translator import GoogleTranslator
+import os
+from huggingface_hub import InferenceClient
 
-DetectorFactory.seed = 0  # deterministic detection
+# Initialize client once at module level to reuse connections
+HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
+if not HF_API_KEY:
+    raise ValueError("Missing HUGGINGFACE_API_KEY environment variable")
 
-
-def detect_language(text: str) -> str:
-    try:
-        return detect(text)
-    except LangDetectException:
-        return "unknown"
+client = InferenceClient(token=HF_API_KEY)
 
 
 def translate_text(text: str, target_language: str = "en") -> tuple[str, str]:
-    """Returns (detected_language, translated_text)."""
-    detected = detect_language(text)
+    """
+    Returns (detected_language, translated_text).
+    Uses an LLM prompt to handle Romanized regional languages (Hinglish/Tanglish).
+    Falls back to original text if translation fails so complaints never fail to save.
+    """
+    if not text or not text.strip():
+        return ("unknown", "")
 
-    if detected == target_language:
-        return detected, text
+    # Smart prompt that explicitly handles English-script regional languages
+    prompt = (
+        f"You are an expert translator for Indian regional languages. "
+        f"Translate the following complaint to {target_language}.\n\n"
+        f"CRITICAL RULES:\n"
+        f"1. The text may be a regional language (Hindi, Tamil, Telugu, etc.) typed using English letters (Hinglish/Tanglish).\n"
+        f"2. If typed in English letters, translate the INTENDED meaning, not literal English words.\n"
+        f"3. If already in {target_language}, return it exactly as-is.\n"
+        f"4. Output ONLY the translated text. No explanations.\n\n"
+        f'Text: "{text}"\n\n'
+        f"Translated:"
+    )
 
     try:
-        translated = GoogleTranslator(source="auto", target=target_language).translate(text)
-        return detected, translated
-    except Exception:
-        # Network unavailable / API hiccup — never block complaint submission on this.
-        return detected, text
+        response = client.text_generation(
+            prompt,
+            model="google/gemma-2b-it",  # Free-tier friendly, great at mixed scripts
+            max_new_tokens=250,
+            temperature=0.1,  # Low temp for consistent translations
+        )
+        
+        translated = response.strip()
+        # Gemma doesn't do explicit lang detection, so we mark as romanized/mixed
+        return ("romanized/regional", translated)
 
-
-# --- LLM-based alternative (better for regional dialects, code-mixed text) ---
-#
-# import requests
-#
-# def translate_text_llm(text: str, target_language: str = "English") -> tuple[str, str]:
-#     prompt = (
-#         f"Detect the language of this text and translate it to {target_language}. "
-#         f"Preserve tone and specific details (names, dates, amounts). "
-#         f'Return JSON: {{"detected_language": "...", "translation": "..."}}\n\n'
-#         f"Text: {text}"
-#     )
-#     response = requests.post(
-#         "https://api.anthropic.com/v1/messages",
-#         headers={"x-api-key": "YOUR_KEY", "anthropic-version": "2023-06-01"},
-#         json={
-#             "model": "claude-sonnet-4-6",
-#             "max_tokens": 500,
-#             "messages": [{"role": "user", "content": prompt}],
-#         },
-#     )
-#     data = response.json()["content"][0]["text"]
-#     parsed = json.loads(data)
-#     return parsed["detected_language"], parsed["translation"]
+    except Exception as e:
+        print(f"⚠️ Translation failed: {str(e)}")
+        # Never block complaint submission on translation failure
+        return ("unknown", text)
