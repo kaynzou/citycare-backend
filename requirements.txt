@@ -3,3 +3,5 @@ uvicorn[standard]
 sqlalchemy
 python-multipart
 huggingface_hub>=0.24.0
+transformers>=4.30.0
+sentencepiece
