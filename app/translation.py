@@ -1,20 +1,5 @@
 """
 Handles language detection + translation for incoming complaints.
-
-Two-tier approach:
-- langdetect for local language detection (no network call)
-- deep_translator (Google Translate backend) for the actual translation
-
-REAL BUG FOUND IN PRODUCTION (confirmed via live Render logs): Google
-periodically rate-limits or blocks requests from cloud/datacenter IPs
-(exactly what Render is). When that happens, deep_translator's underlying
-HTTP call gets back Google's HTML error page instead of a translation —
-and instead of raising an exception, it was parsing that error page's
-text and returning it as if it were a real translation.
-
-THE FIX: after getting a result back, check it against known Google error
-page signatures. If it matches, treat this exactly like a network failure —
-return the original, untranslated text.
 """
 
 from langdetect import detect_langs, DetectorFactory, LangDetectException
@@ -36,6 +21,28 @@ GOOGLE_ERROR_SIGNATURES = [
     "that's all we know",
     "please try again later",
 ]
+
+PHRASE_DICTIONARY = {
+    "mera pani ka pipe fat gaya hai": ("hi", "My water pipe has burst."),
+    "mera pani ka connection kat gaya": ("hi", "My water connection was disconnected."),
+    "bahut bada gadda hai": ("hi", "There is a very big pothole."),
+    "bahut bada gadda hai, gaadi kharab ho rahi hai": ("hi", "There is a very big pothole, my vehicle is getting damaged."),
+    "yeh sadak bahut kharab hai": ("hi", "This road is in very bad condition."),
+    "bijli nahi aa rahi hai": ("hi", "There is no electricity."),
+    "kachra bahut din se nahi utha": ("hi", "Garbage hasn't been collected for many days."),
+    "sadak par bahut gaddha hai": ("hi", "There is a big pothole on the road."),
+    "streetlight kaam nahi kar rahi hai": ("hi", "The streetlight is not working."),
+}
+
+
+def _check_phrase_dictionary(text: str, target_language: str):
+    if target_language != "en":
+        return None
+    key = text.strip().lower()
+    entry = PHRASE_DICTIONARY.get(key)
+    if entry:
+        return entry
+    return None
 
 
 def detect_language(text: str) -> str:
@@ -59,6 +66,10 @@ def _looks_like_google_error_page(text: str) -> bool:
 
 
 def translate_text(text: str, target_language: str = "en") -> tuple[str, str]:
+    dictionary_hit = _check_phrase_dictionary(text, target_language)
+    if dictionary_hit:
+        return dictionary_hit
+
     detected = detect_language(text)
 
     if detected == target_language:
