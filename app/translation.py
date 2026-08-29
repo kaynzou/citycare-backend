@@ -24,6 +24,7 @@ GOOGLE_ERROR_SIGNATURES = [
 
 PHRASE_DICTIONARY = {
     "mera pani ka pipe fat gaya hai": ("hi", "My water pipe has burst."),
+    "mera pani ka pipe fut gaya hai": ("hi", "My water pipe has burst."),
     "mera pani ka connection kat gaya": ("hi", "My water connection was disconnected."),
     "bahut bada gadda hai": ("hi", "There is a very big pothole."),
     "bahut bada gadda hai, gaadi kharab ho rahi hai": ("hi", "There is a very big pothole, my vehicle is getting damaged."),
@@ -33,6 +34,7 @@ PHRASE_DICTIONARY = {
     "sadak par bahut gaddha hai": ("hi", "There is a big pothole on the road."),
     "streetlight kaam nahi kar rahi hai": ("hi", "The streetlight is not working."),
     "garbage bahut din se nahi utha hai": ("hi", "Garbage hasn't been collected in many days."),
+    "park mein raat ko bahut shor hota hai": ("hi", "There is a lot of noise in the park at night."),
 }
 
 
