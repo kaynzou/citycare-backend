@@ -35,6 +35,8 @@ PHRASE_DICTIONARY = {
     "streetlight kaam nahi kar rahi hai": ("hi", "The streetlight is not working."),
     "garbage bahut din se nahi utha hai": ("hi", "Garbage hasn't been collected in many days."),
     "park mein raat ko bahut shor hota hai": ("hi", "There is a lot of noise in the park at night."),
+    "is ilake mein raat ko chori hoti hai": ("hi", "There are thefts in this area at night."),
+    "bridge ka kaam bahut dinon se ruka hai": ("hi", "The bridge construction work has been stalled for many days."),
 }
 
 
