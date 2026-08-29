@@ -5,31 +5,22 @@ Two-tier approach:
 - langdetect for local language detection (no network call)
 - deep_translator (Google Translate backend) for the actual translation
 
-TRANSLATION ITSELF WORKS FINE — confirmed on the live deployment translating
-romanized Hindi ("Mera pani ka connection kat gaya") to correct English.
-Google Translate's own internal detection is good; it doesn't rely on the
-separate `detected_language` label below.
+REAL BUG FOUND IN PRODUCTION (confirmed via live Render logs): Google
+periodically rate-limits or blocks requests from cloud/datacenter IPs
+(exactly what Render is). When that happens, deep_translator's underlying
+HTTP call gets back Google's HTML error page instead of a translation —
+and instead of raising an exception, it was parsing that error page's
+text and returning it as if it were a real translation.
 
-THE ONLY BUG: the separately-reported `detected_language` field (using
-langdetect) can be confidently wrong on short/romanized text — it has
-labeled real complaints as Swedish, Somali, and Tagalog. This does NOT
-affect translation quality, only the label shown alongside it.
-
-THE FIX: only trust langdetect's guess when it's both (a) a language this
-app actually expects to see, and (b) langdetect itself is confident. If
-either fails, report "unknown" instead of a wrong confident label — better
-to admit uncertainty than show "tl" for Hindi.
-
-deep_translator needs outbound internet access to translate.google.com.
-If that's blocked, this falls back to returning the original text
-untranslated rather than failing the request — a complaint should never
-fail to save just because translation didn't work.
+THE FIX: after getting a result back, check it against known Google error
+page signatures. If it matches, treat this exactly like a network failure —
+return the original, untranslated text.
 """
 
 from langdetect import detect_langs, DetectorFactory, LangDetectException
 from deep_translator import GoogleTranslator
 
-DetectorFactory.seed = 0  # deterministic detection
+DetectorFactory.seed = 0
 
 EXPECTED_LANGUAGES = {
     "en", "hi", "bn", "ta", "te", "mr", "gu", "kn", "ml", "pa", "ur", "or", "as", "ne",
@@ -37,6 +28,14 @@ EXPECTED_LANGUAGES = {
 
 MIN_CONFIDENCE = 0.85
 MIN_CHARS_FOR_LANGDETECT = 15
+
+GOOGLE_ERROR_SIGNATURES = [
+    "error 500",
+    "server error",
+    "that's an error",
+    "that's all we know",
+    "please try again later",
+]
 
 
 def detect_language(text: str) -> str:
@@ -54,8 +53,12 @@ def detect_language(text: str) -> str:
         return "unknown"
 
 
+def _looks_like_google_error_page(text: str) -> bool:
+    lowered = text.lower()
+    return any(signature in lowered for signature in GOOGLE_ERROR_SIGNATURES)
+
+
 def translate_text(text: str, target_language: str = "en") -> tuple[str, str]:
-    """Returns (detected_language, translated_text)."""
     detected = detect_language(text)
 
     if detected == target_language:
@@ -63,6 +66,10 @@ def translate_text(text: str, target_language: str = "en") -> tuple[str, str]:
 
     try:
         translated = GoogleTranslator(source="auto", target=target_language).translate(text)
+
+        if not translated or _looks_like_google_error_page(translated):
+            return detected, text
+
         return detected, translated
     except Exception:
         return detected, text
