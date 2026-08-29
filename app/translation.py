@@ -32,6 +32,7 @@ PHRASE_DICTIONARY = {
     "kachra bahut din se nahi utha": ("hi", "Garbage hasn't been collected for many days."),
     "sadak par bahut gaddha hai": ("hi", "There is a big pothole on the road."),
     "streetlight kaam nahi kar rahi hai": ("hi", "The streetlight is not working."),
+    "garbage bahut din se nahi utha hai": ("hi", "Garbage hasn't been collected in many days."),
 }
 
 
