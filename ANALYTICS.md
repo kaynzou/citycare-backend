@@ -8,13 +8,16 @@ Complaints are routed to a ward by GPS, each level gets the category's SLA,
 breaches auto-escalate up the chain, and every office is scored and ranked
 from the real complaint records, with access enforced by the API.
 
-**Nothing in the existing backend was edited.** `app/main.py`, `models.py`,
-`database.py`, `schemas.py` and `translation.py` are untouched; this is all
-new files.
+The only change to existing code is a guarded block at the end of
+`app/main.py` that attaches the analytics, so the start command Render already
+uses (`uvicorn app.main:app`) serves them. If the analytics module ever fails
+to load, the block logs it and the complaint API keeps working unchanged.
+`models.py`, `database.py`, `schemas.py` and `translation.py` are untouched.
 
 | New file | What it does |
 |---|---|
-| `app/analytics_app.py` | Entry point: imports the existing `app.main:app` and adds the new routes |
+| `app/analytics/bootstrap.py` | `install(app)`: attaches the routes, loads the data, starts the SLA job |
+| `app/analytics_app.py` | Alternative entry point (same app; used by the local runner) |
 | `app/analytics/config.py` | **Every tunable rule**: score weights, category SLAs, chain, thresholds |
 | `app/analytics/engine.py` | Metrics, scoring, ranking, SLA escalation job (pure functions) |
 | `app/analytics/access.py` | Signed session tokens + the jurisdiction policy |
@@ -117,10 +120,9 @@ all time, custom range. Calendar periods use IST. Trends use a rolling
 
 ## Deploying to Render
 
-Merge this branch into the repo Render builds from, then set the service's
-**Start Command** to:
-
-    uvicorn app.analytics_app:app --host 0.0.0.0 --port $PORT
+Nothing to configure: push to the branch Render builds from, and the existing
+start command (`uvicorn app.main:app ...`) serves the new endpoints. Check
+`https://<your-service>.onrender.com/api/gov/health`.
 
 Optional environment variables:
 

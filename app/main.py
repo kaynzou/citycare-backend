@@ -134,3 +134,13 @@ def update_status(complaint_no: str, payload: schemas.StatusUpdate, db: Session 
 @app.get("/")
 def health_check():
     return {"status": "CityCare API running"}
+
+
+# Government Portal analytics (app/analytics): jurisdiction-scoped complaints,
+# SLA escalation and performance ranking. Guarded so the complaint API above
+# keeps working even if the analytics module cannot start.
+try:
+    from .analytics.bootstrap import install as install_gov_analytics
+    install_gov_analytics(app)
+except Exception as exc:  # pragma: no cover
+    print(f"[analytics] Government Portal analytics disabled: {exc}")
